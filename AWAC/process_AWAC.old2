@@ -1,0 +1,200 @@
+clear
+%% Constants
+% Transformation matrix for beam to xyz coordinates,
+% the values can be found from the header file that is generated in the
+% conversion of data to ASCII format
+% Transformation matrix for WPR 1685
+T = [1.5774 -0.7891 -0.7891
+    0.0000 -1.3662 1.3662
+    0.3677 0.3677  0.3677];
+
+% Instrument orientation
+statusbit0 = 0;
+
+
+%% Data Files
+% SEN
+sen = load('site3_sen.mat');
+senNames = fieldnames(sen);
+senArray = struct2cell(sen);
+senArray = cell2mat(senArray');
+
+% WAD
+wad = load('site3_wad.mat');
+wadNames = fieldnames(wad);
+wadArray = struct2cell(wad);
+wadArray = cell2mat(wadArray');
+
+
+%% Tidy Data
+% Create timestamp
+timestamp = datenum(sen.year,sen.month,sen.day,sen.hour,sen.minute,sen.second);
+
+% Number of bursts
+burstTotal = unique(wad.burstCounter);
+
+% Remove last burst as it will not be complete (but check anyway)
+if rem(numel(timestamp),2)
+    disp('AWAC was stopped before the end of the burst, removing last burst entirely')
+    
+    % Sensor
+    timestamp = timestamp(1:end-1);
+    senArray = senArray(1:end-1,:);
+    
+    % Wad - remove last burst
+    dummy = find(wad.burstCounter==burstTotal(end));
+    wadArray(dummy,:) = [];
+end
+
+% Get start and end of bursts
+burstStart = timestamp(1:2:numel(timestamp));
+burstEnd = timestamp(2:2:numel(timestamp));
+
+% Create a time array for each ping
+interval = 1200;
+samples = 2048; 
+dt = interval/samples; % time between pings
+a = datenum(0,0,0,0,0,dt);
+b = datenum(0,0,0,0,0,interval);
+pingdt = a:a:b;
+pingTimestamp = ones(1,length(wadArray))*nan;
+
+%T = T/4096;   % Scale the transformation matrix correctly to floating point numbers
+
+% If instrument is pointing down (bit 0 in status equal to 1)
+% rows 2 and 3 must change sign
+% NOTE: For the Vector the instrument is defined to be in
+%       the UP orientation when the communication cable
+%       end of the canister is on the top of the canister, ie when
+%       the probe is pointing down.
+%       For the other instruments that are used vertically, the UP
+%       orientation is defined to be when the head is on the upper
+%       side of the canister.
+if statusbit0 == 1,
+    T(2,:) = -T(2,:);
+    T(3,:) = -T(3,:);
+end
+
+%% Beam to ENU conversion
+% Sensors are sampled at the start and end of each burst, take mean of i(n) and i(n+1)
+% and use this in T matrix
+
+thisBurst = 0;
+ENU = ones(length(wadArray),3)*nan;
+for i = 1:length(wadArray)
+    
+    % Counter for sensor data
+    burstNumber = wadArray(i,1);
+
+    % If new burst, get new transformation matrix & append pingTimestamp
+    if burstNumber ~= thisBurst
+        disp(['Getting new matrix for burst number: ' num2str(burstNumber) ', ensemble number: ' num2str(wadArray(i,2)) ', timestamp: ' datestr(burstStart(burstNumber))])
+        pingTimestamp(i:i+2047) = burstStart(burstNumber) + pingdt;
+        
+        % Take the mean of the start and end of burst of heading, pitch,
+        % and roll. Convert to radians.
+        hh = mean(senArray(burstNumber:burstNumber+1,11)-90)*(pi/180);
+        pp = mean(senArray(burstNumber:burstNumber+1,12))*(pi/180);
+        rr = mean(senArray(burstNumber:burstNumber+1,13))*(pi/180);
+        
+        % Make heading matrix
+        H = [cos(hh) sin(hh) 0; -sin(hh) cos(hh) 0; 0 0 1];
+        
+        % Make tilt matrix
+        P = [cos(pp) -sin(pp)*sin(rr) -cos(rr)*sin(pp);...
+            0             cos(rr)          -sin(rr);  ...
+            sin(pp) sin(rr)*cos(pp)  cos(pp)*cos(rr)];
+        
+        % Make resulting transformation matrix
+        R = H*P*T;
+        
+        % Update burst number
+        thisBurst = burstNumber;
+    end
+
+        % Beam is beam coordinates, for example beam = [0.23 ; -0.52 ; 0.12]
+        % enu is ENU coordinates
+        %beam = [wadArray(i,8) wadArray(i,9) wadArray(i,10)];
+        beam = [wadArray(i,8) wadArray(i,9) wadArray(i,10)]';
+        
+        % Given beam velocities, ENU coordinates are calculated as
+        %enu = beam * R; % changed from enu = R.*beam
+        enu = R * beam; 
+        % Separate out components
+        ENU(i,:) = enu;
+        
+        clear beam enu
+end
+
+
+
+%% get burst average velocities
+
+for i=1:max(burstTotal)-1
+    index=find( (pingTimestamp>=burstStart(i)) .* (pingTimestamp<=burstEnd(i)) );
+    Vn(i,1)=mean(ENU(index,1));
+    Ve(i,1)=mean(ENU(index,2));
+    Vz(i,1)=mean(ENU(index,3));
+end
+
+
+% get average pressure for each burst
+
+
+
+for i=1:max(burstTotal)-1;
+    Press(i,1)=0.5*(sen.pressure(2*i-1)+sen.pressure(2*i));
+    bursttime(i,:)=datevec(burstStart(i));
+    
+end
+
+figure(1);clf
+subplot(311)
+plot(burstStart,Press);datetick('x')
+ylabel('Pressure (m)')
+
+subplot(312)
+plot(burstStart,Ve,burstStart,Vn);datetick('x');legend('Ve','Vn')
+ylabel('burst mean velocity (m/s)')
+
+subplot(313)
+plot(burstStart,Vz);datetick('x')
+ylabel('Burst mean vertical vel (m/s)')
+
+% Save data to struct
+wave = struct('burstCounter',   wadArray(:,1),...
+    'ensembleCounter',          wadArray(:,2),...
+    'pressure',                 wadArray(:,3),...
+    'ASTDistance1Beam4',        wadArray(:,4),...
+    'ASTDistance2Beam4',        wadArray(:,5),...
+    'ASTQualityBeam4_',         wadArray(:,6),...
+    'analogInput',              wadArray(:,7),...
+    'velocityBeam1',            wadArray(:,8),...
+    'velocityBeam2',            wadArray(:,9),...
+    'velocityBeam3',            wadArray(:,10),...
+    'amplitudeBeam1',           wadArray(:,11),...
+    'amplitudeBeam2',           wadArray(:,12),...
+    'amplitudeBeam3',           wadArray(:,13),...
+    'NZST',                     pingTimestamp',...
+    'ENU',                      ENU);
+
+sensor = struct('month',        senArray(:,1),...     
+    'day',                      senArray(:,1),...
+    'year',                     senArray(:,1),...
+    'hour',                     senArray(:,1),...
+    'minute',                   senArray(:,1),...
+    'second',                   senArray(:,1),...
+    'errorCode',                senArray(:,1),...
+    'statusCode',               senArray(:,1),...
+    'batteryVoltage',           senArray(:,1),...
+    'soundSpeed',               senArray(:,1),...
+    'heading',                  senArray(:,1),...
+    'pitch',                    senArray(:,1),...
+    'roll',                     senArray(:,1),...
+    'pressure',                 senArray(:,1),...
+    'temperature',              senArray(:,1),...
+    'analog1',                  senArray(:,1),...
+    'analog2',                  senArray(:,1),...
+    'NZST',                     timestamp);
+
+save('site3.mat','wave','sensor')

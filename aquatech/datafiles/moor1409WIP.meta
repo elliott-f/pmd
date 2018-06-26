@@ -1,0 +1,40 @@
+% MOORING METADATA
+
+% Project and personel
+location               :Lyall Bay Offshore
+deployment_code        :1409WIP
+project_leader         :Scott Nodder
+operator               :Fiona Elliott
+funder                 :WIAL
+
+% Deployment Position
+% lat/lon format       :ddd mm.mmm H 
+lat                    : 41 20.926 S
+lon                    :174 47.927 E
+water_depth            :20
+declination            :
+
+% Deployment Timing
+time_format            :yyyy/mm/dd HH:MM:SS
+start_time             :2014/09/05 11:00:00
+stop_time              :
+utc_offset             :+12
+
+% Other
+notes                  :
+
+
+% Instrumentation
+model,sn,depth         :odyssey,2934,4.6
+model,sn,depth         :twr1050,15470,5.7
+model,sn,depth         :odyssey,2935,8.5
+model,sn,depth         :dobie,2312,8.7
+model,sn,depth         :aquatech,356,8.7
+model,sn,depth         :odyssey,3492,12.4
+model,sn,depth         :twr1050,15469,14
+model,sn,depth         :odyssey,3493,16.3
+model,sn,depth         :dobie,2608,16.5
+model,sn,depth         :aquatech,355,16.5
+model,sn,depth         :ORT,06,18
+
+
